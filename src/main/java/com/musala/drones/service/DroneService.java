@@ -182,6 +182,33 @@ public class DroneService {
        return ResponseEntity.ok(dispatch);
     }
 
+    public ResponseEntity<?> returnDrone(Long droneId){
+        Optional<Drone> drone=droneRepository.findById(droneId);
+        if(!drone.isPresent())
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ErrorObject.builder()
+                    .code("ErrorReturningDrone")
+                    .errorDescription("The Specified Drone does not exist")
+                    .build());
+        else if(drone.get().getState().equals(Constants.DRONE_STATE.DELIVERED)){
+            Drone d=drone.get();
+            d.setState(Constants.DRONE_STATE.RETURNING);
+            DroneDispatch droneDispatch=droneDispatchRepository.findByDrone(d);
+            droneDispatch.setMedication(d.getMedication());
+            d.setMedication(new HashSet<>());
+            droneDispatchRepository.save(droneDispatch);
+            droneRepository.save(d);
+
+        }
+        else {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ErrorObject.builder()
+                    .code("ErrorReturningDrone")
+                    .errorDescription("Drone in invalid state, Drone should be in the DELIVERED state for you to be able to return it")
+                    .build());
+        }
+        Map<String,String> dispatch=new HashMap<>();
+        dispatch.put("status","Successful");
+        return ResponseEntity.ok(dispatch);
+    }
     public Set<Medication>   checkLoadedMedication(Long droneId){
         Drone drone=droneRepository.findById(droneId).get();
         return drone.getMedication();
@@ -234,7 +261,7 @@ public class DroneService {
     }
 
 
-    @Scheduled(initialDelay = 0,fixedDelay = 1000*60*3)
+    @Scheduled(initialDelay = 0,fixedDelay = 100*60*3)
     public void simulateBatteryRecharge(){
         System.out.println("Recharging the battery");
         //Assuming that the drone will only start running after its delivered and will shut down upon delivery, to only be started on return

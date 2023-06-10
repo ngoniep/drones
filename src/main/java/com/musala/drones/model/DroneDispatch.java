@@ -6,11 +6,10 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
-import javax.persistence.Entity;
-import javax.persistence.GeneratedValue;
-import javax.persistence.Id;
-import javax.persistence.OneToOne;
+import javax.persistence.*;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 @Data
 @AllArgsConstructor
@@ -29,4 +28,8 @@ public class DroneDispatch {
     int droneSpeed;
     @CreationTimestamp
     LocalDateTime startTime;
+    //Assuming that a Drone can only carry
+    @OneToMany(fetch = FetchType.EAGER)
+    @Builder.Default
+    Set<Medication> medication=new HashSet<>();
 }

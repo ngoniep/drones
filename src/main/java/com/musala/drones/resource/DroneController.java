@@ -8,10 +8,7 @@ import com.musala.drones.model.Constants;
 import com.musala.drones.model.Drone;
 import com.musala.drones.model.Medication;
 import com.musala.drones.service.DroneService;
-import org.apache.coyote.Response;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -52,6 +49,12 @@ public class DroneController {
     public ResponseEntity<?> getAuditLog(@PathVariable Long droneId){
 
         return ResponseEntity.of(Optional.of(droneService.getAuditLog(droneId)));
+    }
+
+    @GetMapping("/return-drone/{droneId}")
+    public ResponseEntity<?> returnDrone(@PathVariable Long droneId){
+
+        return ResponseEntity.of(Optional.of(droneService.returnDrone(droneId)));
     }
 
     @GetMapping("/check-battery/{droneId}")

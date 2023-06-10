@@ -8,4 +8,6 @@ import java.util.Set;
 
 public interface DroneDispatchRepository extends JpaRepository<DroneDispatch,Long> {
     Set<DroneDispatch> findAllByDroneIn(Set<Drone> drones);
+
+    DroneDispatch findByDrone(Drone d);
 }
