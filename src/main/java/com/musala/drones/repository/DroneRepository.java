@@ -9,5 +9,7 @@ import java.util.Set;
 
 public interface DroneRepository extends JpaRepository<Drone,Long> {
     Set<Drone> findAllByState(Constants.DRONE_STATE state);
-    Set<Drone> findAllByStateInAndAndBatteryCapacityLessThan(List<Constants.DRONE_STATE> state,int batteryCapacity );
+    Set<Drone> findAllByStateInAndBatteryCapacityLessThan(List<Constants.DRONE_STATE> state, int batteryCapacity );
+
+    Set<Drone> findAllByStateIn(List<Constants.DRONE_STATE> statesThatReduceBatter);
 }

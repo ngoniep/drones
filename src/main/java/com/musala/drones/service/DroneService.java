@@ -17,8 +17,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.Period;
+import java.time.ZoneOffset;
 import java.util.*;
 
 /*registering a drone;
@@ -86,9 +85,10 @@ public class DroneService {
                .build();
     }
 
-    public ResponseEntity<?> loadDrone(Long droneId, List<Medication> medicationList){
+    public ResponseEntity<?> loadDrone(Long droneId, Set<MedicationDto> medicationDtoList){
        //Prevent the drone from being loaded with more weight that it can carry;
         //Prevent the drone from being in LOADING state if the battery level is below 25%;
+        Set<Medication> medicationList=medicationDtoSetToMedicationSet(medicationDtoList);
         Drone drone=droneRepository.findById(droneId).get();//Get The Drone
         if(drone.getBatteryCapacity()<25) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ErrorObject.builder()
@@ -120,17 +120,18 @@ public class DroneService {
 
     }
 
-    public ResponseEntity<?>   loadDrone(Long droneId, Medication medication){
+    public ResponseEntity<?>   loadDrone(Long droneId, MedicationDto medicationDto){
         //Prevent the drone from being loaded with more weight that it can carry;
         //Prevent the drone from being in LOADING state if the battery level is below 25%;
 
+        Medication medication=medicationDtoToMedication(medicationDto);
 
         Drone drone=droneRepository.findById(droneId).get();
 
         if(!(drone.getState().equals(Constants.DRONE_STATE.IDLE)||drone.getState().equals(Constants.DRONE_STATE.LOADING)))
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED).body("The drone is not in a state to load");
-        double currentLoad;
-        double additionalLoad;
+        double currentLoad=0;
+        double additionalLoad=medicationDto.getWeight();
         currentLoad = drone.getMedication().stream().mapToDouble(Medication::getWeight).sum();
 
         //Assuming the load is either accepted in enterity or declined
@@ -140,7 +141,10 @@ public class DroneService {
 
         medication=droneMedicationService.saveMedication(medication);
         drone.getMedication().add(medication);
-        drone.setState(Constants.DRONE_STATE.LOADED);
+        if((currentLoad+additionalLoad)<drone.getWeight())
+            drone.setState(Constants.DRONE_STATE.LOADING);
+        else
+            drone.setState(Constants.DRONE_STATE.LOADED);
         drone=droneRepository.save(drone);
         return ResponseEntity.ok(drone);
 
@@ -199,7 +203,7 @@ public class DroneService {
 
 
     //log battery state every 5 minutes
-    @Scheduled(initialDelay = 0,fixedDelay = 1000*60*5)
+    @Scheduled(initialDelay = 0,fixedDelay = 1000*60)
     public void logBatteryState(){
        List<Drone> drones=droneRepository.findAll();
        for(Drone drone:drones){
@@ -212,17 +216,17 @@ public class DroneService {
 
     }
 
-    //Assuming Drone looses 1% every 2 minutes for testing, in a production environment the drone would be sending these stats
+    //Assuming Drone looses 5% every 2 minutes for testing, in a production environment the drone would be sending these stats
     //Status in a live environment will also be sent via events, the below simulates the same
-    @Scheduled(initialDelay = 0,fixedDelay = 1000*60*2)
+    @Scheduled(initialDelay = 1,fixedDelay = 100*60*3)
     public void simulateBatteryDrawDown(){
+       System.out.println("Drawing dowm the battery");
        //Assuming that the drone will only start running after its delivered and will shut down upon delivery, to only be started on return
        List<Constants.DRONE_STATE> statesThatReduceBatter=new ArrayList<>();
        statesThatReduceBatter.add(Constants.DRONE_STATE.DELIVERING);
         statesThatReduceBatter.add(Constants.DRONE_STATE.RETURNING);
-        Set<Drone> drones=droneRepository.findAllByStateInAndAndBatteryCapacityLessThan(statesThatReduceBatter,100);
+        Set<Drone> drones=droneRepository.findAllByStateIn(statesThatReduceBatter);
         for(Drone drone:drones){
-
              drone.setBatteryCapacity(drone.getBatteryCapacity()-1);
              droneRepository.save(drone);
         }
@@ -230,15 +234,16 @@ public class DroneService {
     }
 
 
-    @Scheduled(initialDelay = 0,fixedDelay = 1000*60*2)
+    @Scheduled(initialDelay = 0,fixedDelay = 1000*60*3)
     public void simulateBatteryRecharge(){
+        System.out.println("Recharging the battery");
         //Assuming that the drone will only start running after its delivered and will shut down upon delivery, to only be started on return
         List<Constants.DRONE_STATE> statesThatReduceBatter=new ArrayList<>();
         statesThatReduceBatter.add(Constants.DRONE_STATE.IDLE);
-        Set<Drone> drones=droneRepository.findAllByStateInAndAndBatteryCapacityLessThan(statesThatReduceBatter,100);
+        Set<Drone> drones=droneRepository.findAllByStateInAndBatteryCapacityLessThan(statesThatReduceBatter,100);
         for(Drone drone:drones){
 
-            drone.setBatteryCapacity(drone.getBatteryCapacity()+1);
+            drone.setBatteryCapacity(drone.getBatteryCapacity()+3);
             droneRepository.save(drone);
         }
 
@@ -246,18 +251,19 @@ public class DroneService {
 
 
 
-    @Scheduled(initialDelay = 0,fixedDelay = 1000*60*2)
+    @Scheduled(initialDelay = 0,fixedDelay = 1000*60*3)
     public void simulateDelivery(){
         //Assuming that the drone will only start running after its delivered and will shut down upon delivery, to only be started on return
         List<Constants.DRONE_STATE> statesThatReduceBatter=new ArrayList<>();
         statesThatReduceBatter.add(Constants.DRONE_STATE.DELIVERING);
         statesThatReduceBatter.add(Constants.DRONE_STATE.RETURNING);
-        Set<Drone> drones=droneRepository.findAllByStateInAndAndBatteryCapacityLessThan(statesThatReduceBatter,100);
+        Set<Drone> drones=droneRepository.findAllByStateInAndBatteryCapacityLessThan(statesThatReduceBatter,100);
         Set<DroneDispatch> droneDispatches=droneDispatchRepository.findAllByDroneIn(drones);
         for(DroneDispatch droneDispatch:droneDispatches){
             Drone drone=droneDispatch.getDrone();
-            Duration duration = Duration.between(Instant.from(droneDispatch.getStartTime()), Instant.now());
-            long timeInFlight=duration.toMinutes();
+            Duration duration = Duration.between(droneDispatch.getStartTime().toInstant(ZoneOffset.UTC), Instant.now());
+            long timeInFlight=Math.abs(duration.toMinutes());
+            System.out.println(timeInFlight);
             if(timeInFlight*droneDispatch.getDroneSpeed()>droneDispatch.getDistance()&&drone.getState().equals(Constants.DRONE_STATE.DELIVERING)){
                 drone.setState(Constants.DRONE_STATE.DELIVERED);
             }

@@ -5,13 +5,11 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Fetch;
 
 import java.util.HashSet;
 import java.util.Set;
-import javax.persistence.Entity;
-import javax.persistence.GeneratedValue;
-import javax.persistence.Id;
-import javax.persistence.OneToMany;
+import javax.persistence.*;
 import javax.validation.constraints.Max;
 import javax.validation.constraints.Min;
 import javax.validation.constraints.Pattern;
@@ -21,6 +19,10 @@ import javax.validation.constraints.Pattern;
 @NoArgsConstructor
 @Entity
 @Builder
+@Table(uniqueConstraints = {
+        @UniqueConstraint(name = "serial_number",columnNames = {"serialNumber"})
+})
+
 public class Drone {
 
     @Id
@@ -37,7 +39,7 @@ public class Drone {
     int batteryCapacity;// (percentage);
     Constants.DRONE_STATE state;
     //Assuming that a Drone can only carry
-    @OneToMany
+    @OneToMany(fetch = FetchType.EAGER)
     @Builder.Default
     Set<Medication> medication=new HashSet<>();
 }

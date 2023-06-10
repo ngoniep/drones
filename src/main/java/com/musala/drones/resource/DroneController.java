@@ -3,6 +3,7 @@ package com.musala.drones.resource;
 
 import com.musala.drones.dto.DroneDispatchRequest;
 import com.musala.drones.dto.DroneDto;
+import com.musala.drones.dto.MedicationDto;
 import com.musala.drones.model.Constants;
 import com.musala.drones.model.Drone;
 import com.musala.drones.model.Medication;
@@ -31,9 +32,16 @@ public class DroneController {
     }
 
     @PostMapping("/load-medication/{droneId}")
-    public ResponseEntity<?> registerDrone(@Valid @RequestBody Medication medication, @PathVariable Long droneId){
+    public ResponseEntity<?> registerDrone(@Valid @RequestBody MedicationDto medication, @PathVariable Long droneId){
             return droneService.loadDrone(droneId,medication);
     }
+
+    @PostMapping("/load-medication-list/{droneId}")
+    public ResponseEntity<?> registerDrone(@Valid @RequestBody Set<MedicationDto> medication, @PathVariable Long droneId){
+        return droneService.loadDrone(droneId,medication);
+    }
+
+
 
     @PostMapping("/dispatch-drone")
     public ResponseEntity<?> registerDrone(@RequestBody DroneDispatchRequest droneDispatchRequest){
