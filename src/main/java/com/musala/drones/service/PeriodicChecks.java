@@ -84,29 +84,39 @@ public class PeriodicChecks {
 
 
 
-    @Scheduled(initialDelay = 0,fixedDelay = 1000*60)
+    @Scheduled(initialDelay = 0,fixedDelay = 1000)
     public void simulateDelivery(){
         //Assuming that the drone will only start running after its delivered and will shut down upon delivery, to only be started on return
         List<Constants.DRONE_STATE> statesThatReduceBatter=new ArrayList<>();
         statesThatReduceBatter.add(Constants.DRONE_STATE.DELIVERING);
         statesThatReduceBatter.add(Constants.DRONE_STATE.RETURNING);
+        List<Map<String,Object>> dronesInFlight=new ArrayList<>();
         Set<Drone> drones=droneService.getDronesByState(statesThatReduceBatter);
         Set<DroneDispatch> droneDispatches=droneService.getDispatchesForDrone(drones);
         for(DroneDispatch droneDispatch:droneDispatches){
             Drone drone=droneDispatch.getDrone();
-            Duration duration = Duration.between(droneDispatch.getStartTime().toLocalTime(), LocalTime.now());
-            long timeInFlight=Math.abs(duration.toMinutes());
+            Duration duration = Duration.between(droneDispatch.getStartTime(), LocalTime.now());
+            long timeInFlight=Math.abs(duration.getSeconds());
             if(timeInFlight*droneDispatch.getDroneSpeed()>=droneDispatch.getDistance()&&drone.getState().equals(Constants.DRONE_STATE.DELIVERING)){
                 drone.setState(Constants.DRONE_STATE.DELIVERED);
                 Logger.getAnonymousLogger().log(Level.INFO,"Drone "+drone.getSerialNumber()+" has has arrived with delivery at a delivery at "+droneDispatch.getDestination(),drone.getSerialNumber()+" actual time of delivery "+LocalTime.now()+" estimated time of delivery "+droneDispatch.getEstimatedTimeOfDelivery());
             }
-            if(timeInFlight*droneDispatch.getDroneSpeed()>=droneDispatch.getDistance()&&drone.getState().equals(Constants.DRONE_STATE.RETURNING)){
+            else if(timeInFlight*droneDispatch.getDroneSpeed()>=droneDispatch.getDistance()&&drone.getState().equals(Constants.DRONE_STATE.RETURNING)){
                 drone.setState(Constants.DRONE_STATE.IDLE);
-                Logger.getAnonymousLogger().log(Level.INFO,"Drone "+drone.getSerialNumber()+" returned "+droneDispatch.getDestination()+" battery charge on return is "+drone.getBatteryCapacity()+" battery will start to recharge now");
+                Logger.getAnonymousLogger().log(Level.INFO,"Drone "+drone.getSerialNumber()+" returned to "+droneDispatch.getDestination()+" from "+droneDispatch.getSource()+" battery charge on return is "+drone.getBatteryCapacity()+" battery will start to recharge now");
+            }
+            else {
+                Map<String,Object> droneInFlight=new HashMap<>();
+                droneInFlight.put("serialNumber",drone.getSerialNumber());
+                droneInFlight.put("timeInFlight",timeInFlight);
+                droneInFlight.put("timeRemaining",(droneDispatch.getDistance()/droneDispatch.getDroneSpeed())-timeInFlight);
+                droneInFlight.put("status",drone.getState());
+                dronesInFlight.add(droneInFlight);
             }
             droneService.saveDrone(drone);
         }
-        Logger.getLogger("Battery Recharge Simulation").log(Level.INFO,"Recharging batteries ");
+        if(!dronesInFlight.isEmpty())
+        Logger.getLogger("Delivery Simulation").log(Level.INFO,"Simulating delivery (Time is seconds)"+dronesInFlight);
 
 
     }

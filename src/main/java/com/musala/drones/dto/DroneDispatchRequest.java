@@ -18,8 +18,8 @@ import java.util.Set;
 public class DroneDispatchRequest {
     String source;
     String destination;
-    int distance;
+    int distanceInMetres;
     String droneSerialNumber;
-    int droneSpeed;
+    int droneSpeedInMetresPerSecond;
     //Assuming that a Drone can only carry
 }

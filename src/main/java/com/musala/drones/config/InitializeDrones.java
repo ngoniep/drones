@@ -21,10 +21,10 @@ public class InitializeDrones {
     void initializeTenDrones() {
         for(int i=0;i<10;i++) {
             Drone drone = Drone.builder()
-                    .weight(getRandomWeight())
+                    .weight((i==0)?248:(int)Math.round(Math.random()*500))
                     .state(Constants.DRONE_STATE.IDLE)
-                    .serialNumber(randomSerialNumber())
-                    .batteryCapacity((int)Math.round(Math.random()*100))
+                    .serialNumber((i==0)?"0552-0928-0375-0371":randomSerialNumber())
+                    .batteryCapacity((i==0)?98:(int)Math.round(Math.random()*100))
                     .build();
             if (drone.getWeight() < 100) {
                 drone.setModel(Constants.DRONE_MODEL.Lightweight);

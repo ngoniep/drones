@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -151,9 +152,9 @@ public class DroneService {
     }
 
     public ResponseEntity<?> dispatchDrone(DroneDispatchRequest droneDispatch){
-       long timeToDeliver=droneDispatch.getDistance()/droneDispatch.getDroneSpeed();
+       long timeToDeliverInSeconds=droneDispatch.getDistanceInMetres()/droneDispatch.getDroneSpeedInMetresPerSecond();
        DroneDispatch droneDispatch1=null;
-        LocalDateTime estimatedTimeOfDelivery = LocalDateTime.now().plusMinutes(timeToDeliver);
+        LocalTime estimatedTimeOfDelivery = LocalTime.now().plusSeconds(timeToDeliverInSeconds);
        Optional<Drone> drone=droneRepository.findDroneBySerialNumber(droneDispatch.getDroneSerialNumber());
        if(!drone.isPresent())
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ErrorObject.builder()
@@ -166,9 +167,10 @@ public class DroneService {
            droneRepository.save(d);
            droneDispatch1=droneDispatchRepository.save(DroneDispatch.builder()
                    .destination(droneDispatch.getDestination())
-                   .distance(droneDispatch.getDistance())
-                   .droneSpeed(droneDispatch.getDroneSpeed())
+                   .distance(droneDispatch.getDistanceInMetres())
+                   .droneSpeed(droneDispatch.getDroneSpeedInMetresPerSecond())
                    .source(droneDispatch.getSource())
+                   .destination(droneDispatch.getDestination())
                    .estimatedTimeOfDelivery(estimatedTimeOfDelivery)
                    .drone(d)
                    .build());
@@ -204,11 +206,24 @@ public class DroneService {
                     .build());
         else if(drone.get().getState().equals(Constants.DRONE_STATE.DELIVERED)){
             Drone d=drone.get();
-            d.setState(Constants.DRONE_STATE.RETURNING);
+
             DroneDispatch droneDispatch=droneDispatchRepository.findByDrone(d);
+            droneDispatch.setDrone(null);
+            droneDispatchRepository.save(droneDispatch);
             droneDispatch.setMedication(d.getMedication());
+            DroneDispatch returnDispatch=DroneDispatch.builder().build();
+            returnDispatch.setDrone(d);
+
             d.setMedication(new HashSet<>());
             droneDispatchRepository.save(droneDispatch);
+            returnDispatch=droneDispatchRepository.save(returnDispatch);
+            returnDispatch.setDroneSpeed(droneDispatch.getDroneSpeed());
+            returnDispatch.setDistance(droneDispatch.getDistance());
+            returnDispatch.setEstimatedTimeOfDelivery(LocalTime.now().plusSeconds(droneDispatch.getDistance()/droneDispatch.getDroneSpeed()));
+            returnDispatch.setSource(droneDispatch.getDestination());
+            returnDispatch.setDestination(droneDispatch.getSource());
+            returnDispatch.setStartTime(LocalTime.now());
+            d.setState(Constants.DRONE_STATE.RETURNING);
             droneRepository.save(d);
 
         }

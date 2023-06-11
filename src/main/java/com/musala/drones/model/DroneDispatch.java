@@ -8,6 +8,7 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -26,9 +27,9 @@ public class DroneDispatch {
     @OneToOne
     Drone drone;
     int droneSpeed;
-    @CreationTimestamp
-    LocalDateTime startTime;
-    LocalDateTime estimatedTimeOfDelivery;
+    @Builder.Default
+    LocalTime startTime=LocalTime.now();
+    LocalTime estimatedTimeOfDelivery;
     //Assuming that a Drone can only carry
     @OneToMany(fetch = FetchType.EAGER)
     @Builder.Default
