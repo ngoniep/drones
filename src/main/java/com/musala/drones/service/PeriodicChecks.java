@@ -52,7 +52,7 @@ public class PeriodicChecks {
         for(Drone drone:drones){
             drone.setBatteryCapacity(drone.getBatteryCapacity()-1);
             if(drone.getBatteryCapacity()==25){
-                Logger.getLogger("Battery Draw Down Simulator ").log(Level.WARNING,"Drone "+drone.getSerialNumber()+" Battery is now critical");
+                Logger.getLogger("Battery Draw Down Simulator ").log(Level.WARNING,"Drone "+drone.getSerialNumber()+" Battery is now too low");
             }
             droneService.saveDrone(drone);
         }
