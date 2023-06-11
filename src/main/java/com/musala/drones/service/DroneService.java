@@ -11,14 +11,11 @@ import com.musala.drones.repository.DroneRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 /*registering a drone;
 loading a drone with medication items;
@@ -32,7 +29,6 @@ There is no need for UI;
 
 Introduce a periodic task to check drones battery levels and create history/audit event log for this.*/
 @Service
-@EnableScheduling
 public class DroneService {
 
     @Autowired
@@ -47,49 +43,41 @@ public class DroneService {
     @Autowired
     DroneDispatchRepository droneDispatchRepository;
 
-   public Drone registerDrone(DroneDto droneDto){
+   public DroneDto registerDrone(DroneDto droneDto){
 
-       Drone drone= droneDtoToDto(droneDto);
+       Drone drone= droneDtoToDrone(droneDto);
        drone.setState(Constants.DRONE_STATE.IDLE);
        //Add Drone in Database
-       return droneRepository.save(drone);
+       return droneToDroneDto(droneRepository.save(drone));
    }
 
-    private Drone droneDtoToDto(DroneDto droneDto) {
+    private DroneDto droneToDroneDto(Drone drone) {
+       return DroneDto.builder()
+               .weight(drone.getWeight())
+               .state(drone.getState())
+               .batteryCapacity(drone.getBatteryCapacity())
+               .serialNumber(drone.getSerialNumber())
+               .model(drone.getModel())
+               .medication(droneMedicationService.medicationToMedicationDTO(drone.getMedication(), this))
+               .build();
+    }
+
+    private Drone droneDtoToDrone(DroneDto droneDto) {
        return  Drone.builder()
                .batteryCapacity(droneDto.getBatteryCapacity())
                .model(droneDto.getModel())
-               .medication(medicationDtoSetToMedicationSet(droneDto.getMedication()))
+               .medication(droneMedicationService.medicationDtoSetToMedicationSet(droneDto.getMedication(), this))
                .serialNumber(droneDto.getSerialNumber())
                .state(droneDto.getState())
                .weight(droneDto.getWeight())
                .build();
     }
 
-    private Set<Medication> medicationDtoSetToMedicationSet(Set<MedicationDto> medications) {
-        Set<Medication> medicationSet=new HashSet<>();
-        for(MedicationDto medicationDto:medications){
-           medicationSet.add(medicationDtoToMedication(medicationDto));
-       }
-        return medicationSet;
-    }
-
-    private Medication medicationDtoToMedication(MedicationDto medicationDto) {
-       return Medication.builder()
-               .code(medicationDto.getCode())
-               .createdTime(medicationDto.getCreatedTime())
-               .image(medicationDto.getName())
-               .updatedTime(medicationDto.getUpdatedTime())
-               .weight(medicationDto.getWeight())
-               .name(medicationDto.getName())
-               .build();
-    }
-
-    public ResponseEntity<?> loadDrone(Long droneId, Set<MedicationDto> medicationDtoList){
+    public ResponseEntity<?> loadDrone(String droneSerialNumber, Set<MedicationDto> medicationDtoList){
        //Prevent the drone from being loaded with more weight that it can carry;
         //Prevent the drone from being in LOADING state if the battery level is below 25%;
-        Set<Medication> medicationList=medicationDtoSetToMedicationSet(medicationDtoList);
-        Drone drone=droneRepository.findById(droneId).get();//Get The Drone
+        Set<Medication> medicationList= droneMedicationService.medicationDtoSetToMedicationSet(medicationDtoList, this);
+        Drone drone=droneRepository.findDroneBySerialNumber(droneSerialNumber).get();//Get The Drone
         if(drone.getBatteryCapacity()<25) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ErrorObject.builder()
                     .code("ErrorLoading")
@@ -120,23 +108,34 @@ public class DroneService {
 
     }
 
-    public ResponseEntity<?>   loadDrone(Long droneId, MedicationDto medicationDto){
+    public ResponseEntity<?>   loadDrone(String serialNumber, MedicationDto medicationDto){
         //Prevent the drone from being loaded with more weight that it can carry;
         //Prevent the drone from being in LOADING state if the battery level is below 25%;
 
-        Medication medication=medicationDtoToMedication(medicationDto);
+        Medication medication= droneMedicationService.medicationDtoToMedication(medicationDto);
 
-        Drone drone=droneRepository.findById(droneId).get();
+        Drone drone=droneRepository.findDroneBySerialNumber(serialNumber).get();
 
         if(!(drone.getState().equals(Constants.DRONE_STATE.IDLE)||drone.getState().equals(Constants.DRONE_STATE.LOADING)))
-            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).body("The drone is not in a state to load");
+            return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).body(ErrorObject.builder()
+                    .code("ErrorLoadingDrone")
+                    .errorDescription("The drone is not in a state to load")
+                    .build());
+        if(drone.getBatteryCapacity()<25)
+            return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).body(ErrorObject.builder()
+                    .code("ErrorLoadingDrone")
+                    .errorDescription("Please allow the battery to recharge before loading battery capacity is below 25%")
+                    .build());
         double currentLoad=0;
         double additionalLoad=medicationDto.getWeight();
         currentLoad = drone.getMedication().stream().mapToDouble(Medication::getWeight).sum();
 
         //Assuming the load is either accepted in enterity or declined
         if((currentLoad+medication.getWeight())>drone.getWeight()){
-            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).body("The load exceeds the Drone's carrying capacity");
+            return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).body(ErrorObject.builder()
+                    .code("ErrorLoadingDrone")
+                    .errorDescription("The load exceeds the Drone's carrying capacity")
+                    .build());
         }
 
         medication=droneMedicationService.saveMedication(medication);
@@ -152,7 +151,10 @@ public class DroneService {
     }
 
     public ResponseEntity<?> dispatchDrone(DroneDispatchRequest droneDispatch){
-       Optional<Drone> drone=droneRepository.findById(droneDispatch.getDroneId());
+       long timeToDeliver=droneDispatch.getDistance()/droneDispatch.getDroneSpeed();
+       DroneDispatch droneDispatch1=null;
+        LocalDateTime estimatedTimeOfDelivery = LocalDateTime.now().plusMinutes(timeToDeliver);
+       Optional<Drone> drone=droneRepository.findDroneBySerialNumber(droneDispatch.getDroneSerialNumber());
        if(!drone.isPresent())
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ErrorObject.builder()
                 .code("ErrorDispatching")
@@ -162,11 +164,12 @@ public class DroneService {
            Drone d=drone.get();
            d.setState(Constants.DRONE_STATE.DELIVERING);
            droneRepository.save(d);
-           droneDispatchRepository.save(DroneDispatch.builder()
+           droneDispatch1=droneDispatchRepository.save(DroneDispatch.builder()
                    .destination(droneDispatch.getDestination())
                    .distance(droneDispatch.getDistance())
                    .droneSpeed(droneDispatch.getDroneSpeed())
                    .source(droneDispatch.getSource())
+                   .estimatedTimeOfDelivery(estimatedTimeOfDelivery)
                    .drone(d)
                    .build());
 
@@ -177,13 +180,23 @@ public class DroneService {
                    .errorDescription("Drone in invalid state, Drone should either be loaded or loading to be able to dispatch")
                    .build());
        }
-       Map<String,String> dispatch=new HashMap<>();
-       dispatch.put("status","Successful");
+       Map<String,Object> dispatch=new HashMap<>();
+       //Get total weight being dispatched
+        AtomicReference<Double> totalWeight= new AtomicReference<>((double) 0);
+        drone.get().getMedication().forEach(o->{
+            totalWeight.updateAndGet(v ->  (v + o.getWeight()));
+                });
+        dispatch.put("status","Successful");
+        dispatch.put("estimatedDeliveryTime",droneDispatch1.getEstimatedTimeOfDelivery());
+        dispatch.put("countOfMedications",drone.get().getMedication().size());
+        dispatch.put("totalWeight",totalWeight.get());
+        dispatch.put("source",droneDispatch.getSource());
+        dispatch.put("destination",droneDispatch.getDestination());
        return ResponseEntity.ok(dispatch);
     }
 
-    public ResponseEntity<?> returnDrone(Long droneId){
-        Optional<Drone> drone=droneRepository.findById(droneId);
+    public ResponseEntity<?> returnDrone(String droneSerialNumber){
+        Optional<Drone> drone=droneRepository.findDroneBySerialNumber(droneSerialNumber);
         if(!drone.isPresent())
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ErrorObject.builder()
                     .code("ErrorReturningDrone")
@@ -209,97 +222,70 @@ public class DroneService {
         dispatch.put("status","Successful");
         return ResponseEntity.ok(dispatch);
     }
-    public Set<Medication>   checkLoadedMedication(Long droneId){
-        Drone drone=droneRepository.findById(droneId).get();
-        return drone.getMedication();
+    public ResponseEntity<?>   checkLoadedMedication(String droneSerialNumber){
+        Optional<Drone> droneOptional=droneRepository.findDroneBySerialNumber(droneSerialNumber);
+        if(!droneOptional.isPresent()){
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorObject.builder()
+                    .code("ErrorCheckingMedication")
+                    .errorDescription("The Drone ID provided is not valid")
+                    .build());
+        }
+        Drone drone=droneOptional.get();
+        return ResponseEntity.ok(drone.getMedication());
 
     }
-    public Set<Drone> checkDronesByDState(Constants.DRONE_STATE state){
-       return droneRepository.findAllByState(state);
+    public Set<DroneDto> checkDronesByDState(Constants.DRONE_STATE state){
+       return droneToDroneDto(droneRepository.findAllByState(state));
 
     }
 
-    public int checkBattery(Long dronId){
-      return droneRepository.findById(dronId).get().getBatteryCapacity();
-    }
-
-    public List<BatteryAuditLog> getAuditLog(Long dronId){
-        return batteryAuditLogRepository.findAll();
-    }
-
-
-
-    //log battery state every 5 minutes
-    @Scheduled(initialDelay = 0,fixedDelay = 1000*60)
-    public void logBatteryState(){
-       List<Drone> drones=droneRepository.findAll();
-       for(Drone drone:drones){
-           BatteryAuditLog batteryAuditLog= BatteryAuditLog.builder()
-                   .batteryPercentage(drone.getBatteryCapacity())
-                   .drone(drone)
-                   .build();
-           batteryAuditLogRepository.save(batteryAuditLog);
+    private Set<DroneDto> droneToDroneDto(Set<Drone> allByState) {
+       Set<DroneDto> droneDTOs=new HashSet<>();
+       for(Drone drone:allByState){
+           droneDTOs.add(droneToDroneDto(drone));
        }
-
+       return droneDTOs;
     }
 
-    //Assuming Drone looses 5% every 2 minutes for testing, in a production environment the drone would be sending these stats
-    //Status in a live environment will also be sent via events, the below simulates the same
-    @Scheduled(initialDelay = 1,fixedDelay = 100*60*3)
-    public void simulateBatteryDrawDown(){
-       System.out.println("Drawing dowm the battery");
-       //Assuming that the drone will only start running after its delivered and will shut down upon delivery, to only be started on return
-       List<Constants.DRONE_STATE> statesThatReduceBatter=new ArrayList<>();
-       statesThatReduceBatter.add(Constants.DRONE_STATE.DELIVERING);
-        statesThatReduceBatter.add(Constants.DRONE_STATE.RETURNING);
-        Set<Drone> drones=droneRepository.findAllByStateIn(statesThatReduceBatter);
-        for(Drone drone:drones){
-             drone.setBatteryCapacity(drone.getBatteryCapacity()-1);
-             droneRepository.save(drone);
+    public ResponseEntity<?> checkBattery(String droneSerialNumber){
+        Optional<Drone> droneOptional=droneRepository.findDroneBySerialNumber(droneSerialNumber);
+        if(!droneOptional.isPresent()){
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorObject.builder()
+                    .code("ErrorCheckingMedication")
+                    .errorDescription("The Drone ID provided is not valid")
+                    .build());
         }
+        Drone drone= drone=droneOptional.get();
+        return ResponseEntity.ok(drone.getBatteryCapacity());
 
     }
 
-
-    @Scheduled(initialDelay = 0,fixedDelay = 100*60*3)
-    public void simulateBatteryRecharge(){
-        System.out.println("Recharging the battery");
-        //Assuming that the drone will only start running after its delivered and will shut down upon delivery, to only be started on return
-        List<Constants.DRONE_STATE> statesThatReduceBatter=new ArrayList<>();
-        statesThatReduceBatter.add(Constants.DRONE_STATE.IDLE);
-        Set<Drone> drones=droneRepository.findAllByStateInAndBatteryCapacityLessThan(statesThatReduceBatter,100);
-        for(Drone drone:drones){
-
-            drone.setBatteryCapacity(drone.getBatteryCapacity()+3);
-            droneRepository.save(drone);
-        }
-
+    public List<Map<String,Object>> getAuditLog(String droneSerialNumber){
+        return batteryAuditLogRepository.getAuditForDrone(droneSerialNumber);
     }
 
 
-
-    @Scheduled(initialDelay = 0,fixedDelay = 1000*60*3)
-    public void simulateDelivery(){
-        //Assuming that the drone will only start running after its delivered and will shut down upon delivery, to only be started on return
-        List<Constants.DRONE_STATE> statesThatReduceBatter=new ArrayList<>();
-        statesThatReduceBatter.add(Constants.DRONE_STATE.DELIVERING);
-        statesThatReduceBatter.add(Constants.DRONE_STATE.RETURNING);
-        Set<Drone> drones=droneRepository.findAllByStateInAndBatteryCapacityLessThan(statesThatReduceBatter,100);
-        Set<DroneDispatch> droneDispatches=droneDispatchRepository.findAllByDroneIn(drones);
-        for(DroneDispatch droneDispatch:droneDispatches){
-            Drone drone=droneDispatch.getDrone();
-            Duration duration = Duration.between(droneDispatch.getStartTime().toInstant(ZoneOffset.UTC), Instant.now());
-            long timeInFlight=Math.abs(duration.toMinutes());
-            System.out.println(timeInFlight);
-            if(timeInFlight*droneDispatch.getDroneSpeed()>droneDispatch.getDistance()&&drone.getState().equals(Constants.DRONE_STATE.DELIVERING)){
-                drone.setState(Constants.DRONE_STATE.DELIVERED);
-            }
-            if(timeInFlight*droneDispatch.getDroneSpeed()>droneDispatch.getDistance()&&drone.getState().equals(Constants.DRONE_STATE.RETURNING)){
-                drone.setState(Constants.DRONE_STATE.IDLE);
-            }
-            droneRepository.save(drone);
-        }
-
+    public List<Drone> getAllDrones() {
+       return droneRepository.findAll();
     }
 
+    public BatteryAuditLog auditBatteryState(BatteryAuditLog batteryAuditLog) {
+      return batteryAuditLogRepository.save(batteryAuditLog);
+    }
+
+    public Set<Drone> getDronesByState(List<Constants.DRONE_STATE> filterStates) {
+       return droneRepository.findAllByStateIn(filterStates);
+    }
+
+    public Drone saveDrone(Drone drone) {
+       return droneRepository.save(drone);
+    }
+
+    public Set<Drone> getDronesByStateAndMaxBatteryState(List<Constants.DRONE_STATE> statesThatReduceBatter, int i) {
+        return droneRepository.findAllByStateInAndBatteryCapacityLessThan(statesThatReduceBatter,100);
+    }
+
+    public Set<DroneDispatch> getDispatchesForDrone(Set<Drone> drones) {
+       return droneDispatchRepository.findAllByDroneIn(drones);
+    }
 }

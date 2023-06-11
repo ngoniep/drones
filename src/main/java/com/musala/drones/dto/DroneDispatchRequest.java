@@ -19,7 +19,7 @@ public class DroneDispatchRequest {
     String source;
     String destination;
     int distance;
-    Long droneId;
+    String droneSerialNumber;
     int droneSpeed;
     //Assuming that a Drone can only carry
 }

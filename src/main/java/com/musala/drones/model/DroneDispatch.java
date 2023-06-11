@@ -28,6 +28,7 @@ public class DroneDispatch {
     int droneSpeed;
     @CreationTimestamp
     LocalDateTime startTime;
+    LocalDateTime estimatedTimeOfDelivery;
     //Assuming that a Drone can only carry
     @OneToMany(fetch = FetchType.EAGER)
     @Builder.Default

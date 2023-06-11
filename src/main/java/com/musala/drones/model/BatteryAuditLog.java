@@ -28,6 +28,4 @@ public class BatteryAuditLog {
     Drone drone;
     @CreationTimestamp
     LocalDateTime createdTime;
-    @UpdateTimestamp
-    LocalDateTime updatedTime;
 }

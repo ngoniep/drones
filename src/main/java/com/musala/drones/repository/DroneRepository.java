@@ -5,6 +5,8 @@ import com.musala.drones.model.Drone;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public interface DroneRepository extends JpaRepository<Drone,Long> {
@@ -12,4 +14,7 @@ public interface DroneRepository extends JpaRepository<Drone,Long> {
     Set<Drone> findAllByStateInAndBatteryCapacityLessThan(List<Constants.DRONE_STATE> state, int batteryCapacity );
 
     Set<Drone> findAllByStateIn(List<Constants.DRONE_STATE> statesThatReduceBatter);
+
+
+    Optional<Drone> findDroneBySerialNumber(String droneSerialNumber);
 }
